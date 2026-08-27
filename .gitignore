@@ -1,8 +1,8 @@
 RawCSV/
 network-operations/data/landing/
-NP2_Usage_Processor/data/
-NP2_Usage_Processor/output/
-NP2_Usage_Processor/tmp/
+*/data/
+*/output/
+*/tmp/
 Phase 1 Project - Network Operations Predictive Intelligence - Trainer Guide.docx
 .venv/
 */__pycache__/
