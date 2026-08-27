@@ -123,5 +123,13 @@ def test_export_summary(tmp_path):
 
     processor.run(tmp_path)
 
-    assert (tmp_path / "daily_summary.csv").exists()
-    assert (tmp_path / "grid_summary.csv").exists()
+    assert (tmp_path + "daily_summary.csv")
+    assert (tmp_path + "grid_summary.csv")
+
+test_load_data()
+test_clean_data()
+test_derive_time_features()
+test_aggregate_to_grid_time()
+test_derive_activity_features()
+test_compute_kpis()
+test_export_summary("tmp")

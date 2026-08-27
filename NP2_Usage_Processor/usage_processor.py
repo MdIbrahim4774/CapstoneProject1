@@ -145,6 +145,8 @@ class UsageProcessor:
             errors="coerce",
         )
 
+        invalid_timestamp = self.df["timestamp"].isna()
+
         # -------------------------------------------------
         # grid_id validation
         # -------------------------------------------------
@@ -155,12 +157,6 @@ class UsageProcessor:
             self.df["grid_id"].isna()
             | self.df["grid_id"].str.strip().eq("")
         )
-
-        # -------------------------------------------------
-        # Required timestamp validation
-        # -------------------------------------------------
-
-        invalid_timestamp = self.df["timestamp"].isna()
 
         # -------------------------------------------------
         # Activity columns
@@ -178,6 +174,7 @@ class UsageProcessor:
             .lt(0)
             .any(axis=1)
         )
+        print(f"Negative activity rows: {negative_mask}")
 
         # -------------------------------------------------
         # Curated-layer null handling
@@ -451,3 +448,5 @@ class UsageProcessor:
         logger.info("Usage processing completed successfully.")
 
         return self
+
+# UsageProcessor("data/sms-call-internet-mi-2013-11-01.csv").run()
