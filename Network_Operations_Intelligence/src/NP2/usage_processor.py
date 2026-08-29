@@ -460,4 +460,4 @@ class UsageProcessor:
 
         return self
 
-# UsageProcessor("data/sms-call-internet-mi-2013-11-01.csv").run()
+UsageProcessor("data/sms-call-internet-mi-2013-11-01.csv").run()
