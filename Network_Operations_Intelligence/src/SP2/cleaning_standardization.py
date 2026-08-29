@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
-FILE_PATTERN = str(DATA_DIR / "sms-call-internet-mi-*.csv")
+FILE_PATTERN = list(DATA_DIR.glob("sms-call-internet-mi-*.csv"))
 
 
 # ---------------------------------------------------------
@@ -73,13 +73,13 @@ def create_spark_session():
 def load_raw_data(spark):
 
     logger.info("Reading files from:")
-    logger.info(FILE_PATTERN)
+    logger.info(str(DATA_DIR / "sms-call-internet-mi-*.csv"))
 
     df = (
         spark.read
         .option("header", True)
         .option("inferSchema", True)
-        .csv(FILE_PATTERN)
+        .csv([str(file) for file in FILE_PATTERN])
     )
 
     logger.info("Raw record count: %d", df.count())
