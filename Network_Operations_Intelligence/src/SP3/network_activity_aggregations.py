@@ -307,8 +307,6 @@ def main():
         "data/peak_activity_hours"
     )
 
-    print("\n✓ SP3 processing completed successfully.")
-
     spark.stop()
 
 

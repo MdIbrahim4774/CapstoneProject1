@@ -26,6 +26,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
 FILE_PATTERN = list(DATA_DIR.glob("sms-call-internet-mi-*.csv"))
+OUTPUT_PATH = "data/processed/sp2_cleaned"
 
 
 # ---------------------------------------------------------
@@ -443,6 +444,9 @@ def main():
         print("\nRejected Records:")
         rejected_df.show(10, truncate=False)
 
+        (clean_network_df
+         .write.mode("overwrite")
+         .parquet("data/processed/sp2_cleaned"))
     finally:
 
         spark.stop()
