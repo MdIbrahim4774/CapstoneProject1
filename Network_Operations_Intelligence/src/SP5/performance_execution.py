@@ -32,8 +32,8 @@ spark.sparkContext.setLogLevel("WARN")
 # Paths
 # =========================================================
 
-CLEANED_PATH = r"data/processed/cleaned_network"
-GRID_PATH = r"data/reference/milano-grid.geojson"
+CLEANED_PATH = r"output/SP2/clean_network"
+GRID_PATH = r"output/SP4/grid_activity_geo"
 
 
 # =========================================================
@@ -244,11 +244,7 @@ print("=" * 70)
 # Load static grid lookup
 # ---------------------------------------------------------
 
-grid_df = (
-    spark.read
-    .format("json")
-    .load(GRID_PATH)
-)
+grid_df = spark.read.parquet(GRID_PATH)
 
 
 print("\nGrid lookup columns:")
