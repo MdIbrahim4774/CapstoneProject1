@@ -2,11 +2,13 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
+from cleaning_standardization import build_clean_network_df
+
 
 def consolidate_grid_hour(df):
     """
     Collapse country-code-level records into one record
-    per grid_id + hourly timestamp.
+    per grid_id + timestamp.
     """
 
     required_columns = [
@@ -40,9 +42,9 @@ def consolidate_grid_hour(df):
 
 def validate_hourly_grain(df):
     """
-    Learner-owned grain validation.
+    Validate the canonical grain.
 
-    Expected grain:
+    Expected:
         exactly one row per grid_id + timestamp
     """
 
@@ -100,6 +102,20 @@ def add_activity_metrics(df):
     return df
 
 
+def add_internet_share(df):
+    """
+    Calculate internet activity as a share of total activity.
+    """
+
+    return df.withColumn(
+        "internet_share",
+        F.when(
+            F.col("total_activity") > 0,
+            F.col("internet_activity") / F.col("total_activity")
+        ).otherwise(F.lit(0.0))
+    )
+
+
 def create_daily_traffic_summary(hourly_grid_summary):
     """
     Create daily traffic summary for each grid.
@@ -126,13 +142,15 @@ def create_daily_traffic_summary(hourly_grid_summary):
 
 def create_hotspot_ranking(daily_traffic_summary):
     """
-    Rank grids by activity within each day.
+    Rank the top 10 high-activity grids within each day.
     """
 
-    ranking_window = Window.partitionBy(
-        "activity_date"
-    ).orderBy(
-        F.col("daily_total_activity").desc()
+    ranking_window = (
+        Window
+        .partitionBy("activity_date")
+        .orderBy(
+            F.col("daily_total_activity").desc()
+        )
     )
 
     hotspot_ranking = (
@@ -141,7 +159,9 @@ def create_hotspot_ranking(daily_traffic_summary):
             "activity_rank",
             F.row_number().over(ranking_window)
         )
-        .filter(F.col("activity_rank") <= 10)
+        .filter(
+            F.col("activity_rank") <= 10
+        )
     )
 
     return hotspot_ranking
@@ -152,11 +172,13 @@ def find_peak_activity_hour(hourly_grid_summary):
     Identify the peak activity hour for each grid.
     """
 
-    peak_window = Window.partitionBy(
-        "grid_id"
-    ).orderBy(
-        F.col("total_activity").desc(),
-        F.col("timestamp").asc()
+    peak_window = (
+        Window
+        .partitionBy("grid_id")
+        .orderBy(
+            F.col("total_activity").desc(),
+            F.col("timestamp").asc()
+        )
     )
 
     peak_hours = (
@@ -165,7 +187,9 @@ def find_peak_activity_hour(hourly_grid_summary):
             "peak_rank",
             F.row_number().over(peak_window)
         )
-        .filter(F.col("peak_rank") == 1)
+        .filter(
+            F.col("peak_rank") == 1
+        )
         .select(
             "grid_id",
             "timestamp",
@@ -184,21 +208,11 @@ def find_peak_activity_hour(hourly_grid_summary):
     return peak_hours
 
 
-def add_internet_share(df):
-    """
-    Calculate internet activity as a share of total activity.
-    """
-
-    return df.withColumn(
-        "internet_share",
-        F.when(
-            F.col("total_activity") > 0,
-            F.col("internet_activity") / F.col("total_activity")
-        ).otherwise(F.lit(0.0))
-    )
-
-
 def main():
+
+    # ---------------------------------------------------------
+    # Create Spark session
+    # ---------------------------------------------------------
 
     spark = (
         SparkSession.builder
@@ -207,19 +221,23 @@ def main():
     )
 
     # ---------------------------------------------------------
-    # Load cleaned DataFrame from SP2
+    # Get cleaned DataFrame directly from SP2
     # ---------------------------------------------------------
 
-    input_path = "data/cleaned_network_activity"
+    print("\n--- Running SP2 ---")
 
-    df = spark.read.parquet(input_path)
+    df,_,_,_,_ = build_clean_network_df(spark)
 
-    print("\n--- SP2 Input ---")
+    print("\n--- SP2 Output / SP3 Input ---")
     df.printSchema()
+
+    df.show(10, truncate=False)
 
     # ---------------------------------------------------------
     # 1. Collapse country-code records
     # ---------------------------------------------------------
+
+    print("\n--- Consolidating Grid + Timestamp ---")
 
     hourly_grid_summary = consolidate_grid_hour(df)
 
@@ -242,6 +260,8 @@ def main():
     # ---------------------------------------------------------
     # 4. Validate canonical grain
     # ---------------------------------------------------------
+
+    print("\n--- Validating Grain ---")
 
     validate_hourly_grain(
         hourly_grid_summary
@@ -288,24 +308,15 @@ def main():
     peak_hours.show(20, truncate=False)
 
     # ---------------------------------------------------------
-    # Export
+    # Final schema checks
     # ---------------------------------------------------------
 
-    hourly_grid_summary.write.mode("overwrite").parquet(
-        "data/hourly_grid_summary"
-    )
+    print("\n--- Hourly Grid Summary Schema ---")
+    hourly_grid_summary.printSchema()
 
-    daily_traffic_summary.write.mode("overwrite").parquet(
-        "data/daily_traffic_summary"
-    )
-
-    hotspot_ranking.write.mode("overwrite").parquet(
-        "data/hotspot_ranking"
-    )
-
-    peak_hours.write.mode("overwrite").parquet(
-        "data/peak_activity_hours"
-    )
+    # ---------------------------------------------------------
+    # Stop Spark
+    # ---------------------------------------------------------
 
     spark.stop()
 

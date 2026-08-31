@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "data"
 
 FILE_PATTERN = list(DATA_DIR.glob("sms-call-internet-mi-*.csv"))
-OUTPUT_PATH = "data/processed/sp2_cleaned"
+OUTPUT_PATH = "data/processed"
 
 
 # ---------------------------------------------------------
@@ -395,7 +395,23 @@ def build_clean_network_df(spark):
         null_handling_report,
         cadence_report
     )
+def save_clean_network_df(clean_network_df):
+    """
+    Save the cleaned network DataFrame as Parquet.
+    """
 
+    output_dir = BASE_DIR / "output" / "SP2" / "clean_network"
+
+    logger.info("Saving clean_network_df to: %s", output_dir)
+
+    (
+        clean_network_df
+        .write
+        .mode("overwrite")
+        .parquet(str(output_dir))
+    )
+
+    logger.info("clean_network_df saved successfully as Parquet.")
 
 # ---------------------------------------------------------
 # Main
@@ -414,6 +430,8 @@ def main():
             null_handling_report,
             cadence_report
         ) = build_clean_network_df(spark)
+
+        save_clean_network_df(clean_network_df)
 
         # -------------------------------------------------
         # Expected Output
@@ -444,9 +462,6 @@ def main():
         print("\nRejected Records:")
         rejected_df.show(10, truncate=False)
 
-        # (clean_network_df
-        #  .write.mode("overwrite")
-        #  .parquet("data/processed/sp2_cleaned"))
     finally:
 
         spark.stop()
