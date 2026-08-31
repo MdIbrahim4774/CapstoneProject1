@@ -1,6 +1,6 @@
 from pathlib import Path
 import logging
-
+import os
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
@@ -28,6 +28,8 @@ DATA_DIR = BASE_DIR / "data"
 FILE_PATTERN = list(DATA_DIR.glob("sms-call-internet-mi-*.csv"))
 OUTPUT_PATH = "data/processed"
 
+os.environ["HADOOP_HOME"] = r"C:\Users\ibrahim.m\Documents\Notes\hadoop"
+os.environ["PATH"] = os.environ["PATH"] + r";C:\Users\ibrahim.m\Documents\Notes\hadoop\bin"
 
 # ---------------------------------------------------------
 # Canonical column mapping
