@@ -303,10 +303,6 @@ def main():
 
         grid_activity_geo_df = (
             activity_df
-            .withColumnRenamed(
-                "internet",
-                "internet_activity"
-            )
             .join(
                 F.broadcast(grid_lookup),
                 "grid_id",
@@ -319,7 +315,7 @@ def main():
                 "sms_out",
                 "call_in",
                 "call_out",
-                "internet_activity",
+                "internet",
                 "total_activity",
                 "geometry"
             )
