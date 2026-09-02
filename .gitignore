@@ -2,7 +2,12 @@ RawCSV/*
 */data/*
 */output/*
 */tmp/*
+*/logs/*
 Phase 1 Project - Network Operations Predictive Intelligence - Trainer Guide.docx
 .venv/
 */__pycache__/
 Network_Operations_Intelligence/src/*/__pycache__/*
+Network_Operations_Intelligence/airflow/dags/__pycache__/
+Network_Operations_Intelligence/airflow/logs/*
+Network_Operations_Intelligence/airflow/airflow*
+Network_Operations_Intelligence/airflow/simple_auth_*
