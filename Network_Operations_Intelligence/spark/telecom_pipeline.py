@@ -46,9 +46,9 @@ from pyspark.sql.types import (
     DoubleType,
 )
 
-os.environ["HADOOP_HOME"] = r"C:\Users\ibrahim.m\Documents\Notes\hadoop"
-os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-17"
-os.environ["PATH"] += r";C:\Users\ibrahim.m\Documents\Notes\hadoop\bin"
+# os.environ["HADOOP_HOME"] = r"C:\Users\ibrahim.m\Documents\Notes\hadoop"
+# os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-17"
+# os.environ["PATH"] += r";C:\Users\ibrahim.m\Documents\Notes\hadoop\bin"
 
 # ============================================================
 # Logging

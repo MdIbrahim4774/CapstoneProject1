@@ -33,7 +33,7 @@ with DAG(
     dag_id="de2_landing_to_raw_ingestion",
     default_args=default_args,
     description="DE2 daily telecom landing-to-raw ingestion",
-    start_date=datetime(2026, 9, 1),
+    start_date=datetime(2026, 9, 2),
     schedule=None,
     catchup=False,
     tags=[
