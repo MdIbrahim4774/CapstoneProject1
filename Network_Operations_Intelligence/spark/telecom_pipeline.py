@@ -44,6 +44,7 @@ from pyspark.sql.types import (
     StructField,
     StringType,
     DoubleType,
+    TimestampNTZType,
 )
 
 # os.environ["HADOOP_HOME"] = r"C:\Users\ibrahim.m\Documents\Notes\hadoop"
@@ -367,7 +368,7 @@ class TelecomPipeline:
 
         df = df.withColumn(
             "timestamp",
-            F.to_timestamp(F.col("timestamp")),
+            F.col("timestamp").cast(TimestampNTZType())
         )
 
         # ----------------------------------------------------
@@ -489,6 +490,11 @@ class TelecomPipeline:
             self.rejected_rows,
         )
 
+        logger.info(
+                    "Max timestamp %d",
+                    df.filter(F.col("timestamp").isNotNull()).agg(F.max("timestamp")).collect()[0][0]
+                )
+
         return df
 
     # ========================================================
@@ -512,7 +518,7 @@ class TelecomPipeline:
 
         df = df.withColumn(
             "timestamp",
-            F.date_trunc("hour", F.col("timestamp")),
+            F.col("timestamp").cast(TimestampNTZType())
         )
 
         aggregated = (

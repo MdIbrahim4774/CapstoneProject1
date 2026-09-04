@@ -382,6 +382,8 @@ def read_aggregated_output(
 
     validate_input_dataframe(df)
 
+    logger.info("LOL %d", df.filter(F.col("timestamp").isNotNull()).agg(F.max("timestamp")).collect())
+
     return df
 
 
@@ -663,6 +665,10 @@ def load_time_dimension(
             timestamp.strftime("%Y%m%d%H")
         )
 
+        timestamp_value = timestamp.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
         date_value = timestamp.date()
 
         hour = timestamp.hour
@@ -682,7 +688,7 @@ def load_time_dimension(
         rows.append(
             (
                 time_key,
-                timestamp,
+                timestamp_value,
                 date_value,
                 hour,
                 day_of_week,
@@ -733,8 +739,9 @@ def load_time_dimension(
     cursor.close()
 
     logger.info(
-        "dim_time records processed: %d",
+        "dim_time records processed: %d, %d",
         len(rows),
+        rows[-1]
     )
 
     cursor = connection.cursor()
@@ -972,7 +979,7 @@ def load_fact_table(
     # Insert in batches to avoid a very large single request.
     # --------------------------------------------------------
 
-    batch_size = 1000
+    batch_size = 3000
 
     inserted = 0
 

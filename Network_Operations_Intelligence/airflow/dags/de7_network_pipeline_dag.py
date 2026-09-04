@@ -60,12 +60,7 @@ from airflow.utils.trigger_rule import TriggerRule
 #
 # Therefore parents[1] = project root.
 
-PROJECT_ROOT = Path(
-    os.getenv(
-        "NETWORK_OPS_PROJECT_ROOT",
-        Path(__file__).resolve().parents[1],
-    )
-)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DATA_DIR = PROJECT_ROOT / "data"
 
@@ -87,7 +82,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 REFERENCE_FILE = REFERENCE_DIR / "milano-grid.geojson"
 
 SPARK_JOB = PROJECT_ROOT / "spark" / "telecom_pipeline.py"
-MYSQL_LOADER = PROJECT_ROOT / "src" / "de6_load_mysql.py"
+MYSQL_LOADER = PROJECT_ROOT / "src" / "DE6" /"de6_load_mysql.py"
 
 
 # ============================================================
@@ -106,7 +101,7 @@ PYTHON_EXECUTABLE = os.getenv(
 
 MYSQL_HOST = os.getenv(
     "MYSQL_HOST",
-    "localhost",
+    "172.23.64.1",
 )
 
 MYSQL_PORT = os.getenv(
@@ -310,7 +305,7 @@ def ingest():
                     f"{source.suffix}"
                 )
 
-            shutil.move(
+            shutil.copy2(
                 str(source),
                 str(rejected_destination),
             )
@@ -322,7 +317,7 @@ def ingest():
 
             continue
 
-        shutil.move(
+        shutil.copy2(
             str(source),
             str(destination),
         )
