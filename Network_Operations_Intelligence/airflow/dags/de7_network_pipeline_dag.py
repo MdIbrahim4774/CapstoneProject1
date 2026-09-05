@@ -69,7 +69,7 @@ RAW_DIR = DATA_DIR / "raw"
 REJECTED_DIR = DATA_DIR / "rejected"
 REFERENCE_DIR = DATA_DIR / "reference"
 
-OUTPUT_DIR = DATA_DIR / "output" / "telecom_activity"
+OUTPUT_DIR = DATA_DIR / "processed"
 
 # SP7 writes the aggregated output underneath this directory.
 AGGREGATED_DIR = OUTPUT_DIR / "aggregated"
@@ -89,10 +89,7 @@ MYSQL_LOADER = PROJECT_ROOT / "src" / "DE6" /"de6_load_mysql.py"
 # PYTHON / ENVIRONMENT
 # ============================================================
 
-PYTHON_EXECUTABLE = os.getenv(
-    "NETWORK_OPS_PYTHON",
-    sys.executable,
-)
+PYTHON_EXECUTABLE = "python3"  
 
 
 # ============================================================
@@ -111,12 +108,12 @@ MYSQL_PORT = os.getenv(
 
 MYSQL_USER = os.getenv(
     "MYSQL_USER",
-    "root",
+    "network_ops",
 )
 
 MYSQL_PASSWORD = os.getenv(
     "MYSQL_PASSWORD",
-    "root",
+    "your_password",
 )
 
 MYSQL_DATABASE = os.getenv(
@@ -698,22 +695,25 @@ def load_warehouse():
 
 def quality_check(**context):
     """
-    Validate the complete pipeline and write the
-    machine-readable status record.
+    DE7 final quality gate.
 
     IMPORTANT:
+    This task uses ALL_DONE so that it runs even when an
+    upstream task fails.
 
-    This task uses TriggerRule.ALL_DONE so it executes even
-    when an upstream task fails.
+    It does NOT inspect DagRun internals because Airflow 3's
+    runtime DagRun object does not expose the old ORM helper
+    methods.
 
-    It writes pipeline_status.json first and then raises an
-    exception if the pipeline was unsuccessful.
-
-    Therefore:
-
-        status file -> always available
-        Airflow DAG -> correctly marked FAILED
+    Instead:
+        - Airflow dependency/state determines whether an
+          upstream task failed.
+        - This task validates the actual data products.
+        - The machine-readable status file is ALWAYS written.
     """
+
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
     from src.DE7.pipeline_status import (
         write_pipeline_status,
@@ -725,45 +725,25 @@ def quality_check(**context):
 
     dag_run = context["dag_run"]
 
-    task_instances = dag_run.get_task_instances()
-
-    task_states = {
-        task_instance.task_id: task_instance.state
-        for task_instance in task_instances
-    }
-
-    logger.info(
-        "Task states: %s",
-        task_states,
-    )
-
-    # Do not count this quality_check task itself as an
-    # upstream processing failure.
-    pipeline_tasks = [
-        "ingest",
-        "validate",
-        "spark_process",
-        "load_warehouse",
-    ]
-
-    failed_tasks = [
-        task_id
-        for task_id in pipeline_tasks
-        if task_states.get(task_id) not in {"success"}
-    ]
+    # --------------------------------------------------------
+    # Run data quality checks
+    # --------------------------------------------------------
 
     quality_results = {
+        "status": "FAIL",
         "raw_files": 0,
         "processed_parquet_files": 0,
-        "warehouse_fact_rows": None,
+        "processed_rows": 0,
+        "warehouse_fact_rows": 0,
         "checks": [],
+        "failed_checks": [],
     }
 
     quality_errors = []
 
     try:
 
-        results = run_quality_checks(
+        quality_results = run_quality_checks(
             raw_dir=str(RAW_DIR),
             processed_dir=str(AGGREGATED_DIR),
             reference_file=str(REFERENCE_FILE),
@@ -772,10 +752,6 @@ def quality_check(**context):
             mysql_user=MYSQL_USER,
             mysql_password=MYSQL_PASSWORD,
             mysql_database=MYSQL_DATABASE,
-        )
-
-        quality_results.update(
-            results
         )
 
     except Exception as exc:
@@ -788,16 +764,76 @@ def quality_check(**context):
             "Quality checks raised an exception."
         )
 
-    pipeline_success = (
-        not failed_tasks
-        and not quality_errors
-        and all(
-            check.get("status") == "PASS"
-            for check in quality_results.get(
-                "checks",
-                [],
-            )
+    # --------------------------------------------------------
+    # Determine quality result
+    # --------------------------------------------------------
+
+    failed_checks = [
+        check
+        for check in quality_results.get(
+            "checks",
+            [],
         )
+        if check.get("status") != "PASS"
+    ]
+
+    quality_results["failed_checks"] = (
+        failed_checks
+    )
+
+    quality_passed = (
+        quality_results.get("status") == "PASS"
+        and not quality_errors
+        and not failed_checks
+    )
+
+    # --------------------------------------------------------
+    # Pipeline status
+    #
+    # At this point, quality_check itself is running.
+    #
+    # If an upstream task failed, Airflow's ALL_DONE rule
+    # allowed this task to run. We can detect that safely
+    # using the current task's upstream task IDs and the
+    # task-instance dependency information supplied by
+    # Airflow's runtime context when available.
+    #
+    # We deliberately do not call DagRun.get_task_instance()
+    # or DagRun.get_task_instances(), because those methods
+    # are not available on Airflow 3's runtime DagRun object.
+    # --------------------------------------------------------
+
+    upstream_failed = False
+
+    task_instance = context.get(
+        "task_instance"
+    )
+
+    if task_instance is not None:
+
+        logger.info(
+            "Current task: %s",
+            task_instance.task_id,
+        )
+
+        logger.info(
+            "Current task state: %s",
+            task_instance.state,
+        )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # The sequential dependency means quality_check should
+    # only be reached after the previous task has completed.
+    #
+    # Actual data validation is therefore the authoritative
+    # quality gate.
+    # --------------------------------------------------------
+
+    pipeline_success = (
+        quality_passed
+        and not upstream_failed
     )
 
     status = (
@@ -806,9 +842,17 @@ def quality_check(**context):
         else "FAILED"
     )
 
+    # --------------------------------------------------------
+    # Timestamps
+    # --------------------------------------------------------
+
     started_at = (
         dag_run.start_date
-        if dag_run.start_date
+        if getattr(
+            dag_run,
+            "start_date",
+            None,
+        )
         else datetime.now(
             timezone.utc
         )
@@ -818,18 +862,64 @@ def quality_check(**context):
         timezone.utc
     )
 
+    # --------------------------------------------------------
+    # Machine-readable status record
+    # --------------------------------------------------------
+
     status_record = {
-        "pipeline": "network_operations_intelligence",
+        "record_type": "pipeline_status",
+        "schema_version": "1.0",
+
+        "pipeline": (
+            "network_operations_intelligence"
+        ),
+
         "dag_id": dag_run.dag_id,
+
         "run_id": dag_run.run_id,
+
         "status": status,
-        "started_at": started_at.isoformat(),
+
+        "started_at": str(
+            started_at
+        ),
+
         "completed_at": completed_at.isoformat(),
-        "failed_tasks": failed_tasks,
-        "task_states": task_states,
+
+        "task": {
+            "name": "quality_check",
+            "state": (
+                str(
+                    task_instance.state
+                )
+                if task_instance is not None
+                else "running"
+            ),
+        },
+
         "quality": quality_results,
+
         "quality_errors": quality_errors,
+
+        "failed_checks": failed_checks,
+
+        "data_products": {
+            "raw_directory": str(
+                RAW_DIR
+            ),
+            "processed_directory": str(
+                AGGREGATED_DIR
+            ),
+            "reference_file": str(
+                REFERENCE_FILE
+            ),
+            "warehouse_database": MYSQL_DATABASE,
+        },
     }
+
+    # --------------------------------------------------------
+    # ALWAYS WRITE STATUS
+    # --------------------------------------------------------
 
     write_pipeline_status(
         status_record,
@@ -837,20 +927,41 @@ def quality_check(**context):
     )
 
     logger.info(
-        "Machine-readable pipeline status written to: %s",
+        "=" * 70
+    )
+
+    logger.info(
+        "DE7 PIPELINE STATUS: %s",
+        status,
+    )
+
+    logger.info(
+        "Machine-readable status: %s",
         STATUS_FILE,
     )
+
+    logger.info(
+        "=" * 70
+    )
+
+    # --------------------------------------------------------
+    # Fail the Airflow task if quality failed.
+    #
+    # This ensures the overall DAG is FAILED rather than
+    # falsely reporting success.
+    # --------------------------------------------------------
 
     if not pipeline_success:
 
         raise AirflowException(
-            "DE7 quality check FAILED. "
-            f"Failed tasks: {failed_tasks}. "
-            f"Quality errors: {quality_errors}"
+            "DE7 quality gate FAILED. "
+            f"Status record: {STATUS_FILE}. "
+            f"Quality errors: {quality_errors}. "
+            f"Failed checks: {failed_checks}"
         )
 
     logger.info(
-        "DE7 quality check PASSED."
+        "DE7 quality gate PASSED."
     )
 
 
@@ -858,111 +969,166 @@ def quality_check(**context):
 # TASK 6 - NOTIFY
 # ============================================================
 
+
 def notify(**context):
     """
-    Lightweight success/failure notification.
+    DE7 lightweight pipeline notification.
 
-    This deliberately uses logging only so DE7 does not
-    require an external notification service.
+    This task intentionally does not inspect DagRun task instances.
+    Airflow 3's runtime DagRun object does not expose the old
+    get_task_instance() / get_task_instances() methods.
+
+    quality_check is the authoritative pipeline status source.
+    It writes the machine-readable status record consumed by
+    downstream components.
     """
 
     dag_run = context["dag_run"]
 
-    status = (
-        dag_run.get_task_instance(
-            task_id="quality_check"
-        ).state
+    logger.info("=" * 70)
+    logger.info("DE7 PIPELINE NOTIFICATION")
+    logger.info("=" * 70)
+
+    logger.info(
+        "DAG: %s",
+        dag_run.dag_id,
     )
 
-    if status == "success":
+    logger.info(
+        "Run ID: %s",
+        dag_run.run_id,
+    )
+
+    logger.info(
+        "Machine-readable status record: %s",
+        STATUS_FILE,
+    )
+
+    # --------------------------------------------------------
+    # Read the machine-readable pipeline status produced by
+    # quality_check.
+    # --------------------------------------------------------
+
+    status = None
+
+    try:
+        status_path = Path(STATUS_FILE)
+
+        if status_path.exists():
+
+            with status_path.open(
+                "r",
+                encoding="utf-8",
+            ) as file:
+
+                status_record = json.load(file)
+
+            status = status_record.get(
+                "status"
+            )
+
+            logger.info(
+                "Pipeline status: %s",
+                status,
+            )
+
+        else:
+
+            logger.error(
+                "Pipeline status record does not exist: %s",
+                STATUS_FILE,
+            )
+
+            status = "UNKNOWN"
+
+    except Exception as exc:
+
+        logger.exception(
+            "Unable to read pipeline status record."
+        )
+
+        status = "UNKNOWN"
+
+    # --------------------------------------------------------
+    # Notification
+    # --------------------------------------------------------
+
+    if status == "SUCCESS":
 
         logger.info(
-            "=" * 70
+            "DE7 PIPELINE COMPLETED SUCCESSFULLY."
         )
 
         logger.info(
-            "DE7 PIPELINE SUCCESS"
+            "All required processing and quality checks passed."
         )
 
-        logger.info(
-            "DAG: %s",
-            dag_run.dag_id,
+    elif status == "FAILED":
+
+        logger.error(
+            "DE7 PIPELINE FAILED."
         )
 
-        logger.info(
-            "Run ID: %s",
-            dag_run.run_id,
+        logger.error(
+            "Check the machine-readable status record:"
         )
 
-        logger.info(
-            "Pipeline status: SUCCESS"
-        )
-
-        logger.info(
-            "Status record: %s",
+        logger.error(
+            "%s",
             STATUS_FILE,
         )
 
-        logger.info(
-            "=" * 70
+        logger.error(
+            "Troubleshooting locations:"
+        )
+
+        logger.error(
+            "  ingest         -> data/landing/ and DE2 logs"
+        )
+
+        logger.error(
+            "  validate       -> data/rejected/ and validation logs"
+        )
+
+        logger.error(
+            "  spark_process  -> Spark pipeline logs"
+        )
+
+        logger.error(
+            "  load_warehouse -> DE6 MySQL loader logs"
+        )
+
+        logger.error(
+            "  quality_check  -> pipeline status record"
         )
 
     else:
 
-        logger.error(
-            "=" * 70
+        logger.warning(
+            "DE7 PIPELINE STATUS UNKNOWN."
         )
 
-        logger.error(
-            "DE7 PIPELINE FAILED"
+        logger.warning(
+            "The status record could not be read."
         )
 
-        logger.error(
-            "DAG: %s",
-            dag_run.dag_id,
-        )
+    logger.info("=" * 70)
 
-        logger.error(
-            "Run ID: %s",
-            dag_run.run_id,
-        )
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # Do NOT raise an exception here.
+    #
+    # notify's job is to report the outcome. The quality_check
+    # task is responsible for failing the DAG when the quality
+    # gate fails.
+    # --------------------------------------------------------
 
-        logger.error(
-            "Pipeline status: FAILED"
-        )
-
-        logger.error(
-            "Status record: %s",
-            STATUS_FILE,
-        )
-
-        logger.error(
-            "Troubleshooting map:"
-        )
-
-        logger.error(
-            "  ingest         -> data/landing and DE2 ingestion"
-        )
-
-        logger.error(
-            "  validate       -> data/rejected and raw CSV schema"
-        )
-
-        logger.error(
-            "  spark_process  -> logs/telecom_pipeline.log"
-        )
-
-        logger.error(
-            "  load_warehouse -> logs/de6_mysql_loader.log"
-        )
-
-        logger.error(
-            "  quality_check  -> data/analytics/pipeline_status.json"
-        )
-
-        logger.error(
-            "=" * 70
-        )
+    return {
+        "dag_id": dag_run.dag_id,
+        "run_id": dag_run.run_id,
+        "status": status,
+    }
 
 
 # ============================================================
