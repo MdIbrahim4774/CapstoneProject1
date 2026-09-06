@@ -19,7 +19,12 @@ from src.api.schemas.network import (
     AlertListResponse,
     HotspotListResponse,
     GridFeatureResponse,
+    RiskPredictionRequest,
+    RiskPredictionResponse,
 )
+
+from src.api.services.prediction_service import predict_risk
+
 from src.api.services.network_service import (
     get_network_summary,
     get_grid_activity,
@@ -249,3 +254,30 @@ def grid_features(
     finally:
         if connection is not None:
             connection.close()
+
+@router.post(
+    "/network/predict-risk",
+    response_model=RiskPredictionResponse,
+)
+def predict_network_risk(
+    request: RiskPredictionRequest,
+) -> RiskPredictionResponse:
+    """
+    Predict network risk for the supplied feature set.
+
+    API5 currently returns a deterministic stub prediction.
+    ML5 will replace the service implementation without changing
+    this endpoint's request or response contract.
+    """
+
+    try:
+        return predict_risk(request)
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Prediction service unavailable",
+                "message": str(exc),
+            },
+        ) from exc

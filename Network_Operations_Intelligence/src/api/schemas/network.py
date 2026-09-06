@@ -167,3 +167,80 @@ class GridFeature(BaseModel):
 class GridFeatureResponse(BaseModel):
     grid_id: str
     features: list[GridFeature]
+
+
+class RiskPredictionRequest(BaseModel):
+    """
+    Stable request contract for risk prediction.
+
+    ML5 can later consume these same fields without changing
+    the API contract used by the frontend.
+    """
+
+    avg_activity: float = Field(
+        ...,
+        ge=0,
+        description="Average network activity for the grid.",
+    )
+
+    activity_growth: float = Field(
+        ...,
+        description="Activity growth relative to the relevant baseline.",
+    )
+
+    active_hours: float = Field(
+        ...,
+        ge=0,
+        le=23,
+        description="Number of active hours in the observation window.",
+    )
+
+    peak_ratio: float = Field(
+        ...,
+        ge=0,
+        description="Ratio representing peak activity relative to normal activity.",
+    )
+
+    variability: float = Field(
+        ...,
+        ge=0,
+        description="Activity variability measure.",
+    )
+
+    internet_share: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Share of total activity attributable to internet usage.",
+    )
+
+
+class RiskPredictionResponse(BaseModel):
+    """
+    Stable prediction response contract.
+
+    The implementation behind this contract can change from
+    stub -> trained ML model without requiring frontend changes.
+    """
+
+    risk_score: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Predicted network risk score between 0 and 1.",
+    )
+
+    risk_level: str = Field(
+        ...,
+        description="Human-readable risk classification.",
+    )
+
+    model_version: str = Field(
+        ...,
+        description="Version identifier of the prediction implementation/model.",
+    )
+
+    explanation_note: str = Field(
+        ...,
+        description="Explanation of the prediction.",
+    )
