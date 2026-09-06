@@ -18,12 +18,14 @@ from src.api.schemas.network import (
     GridActivityResponse,
     AlertListResponse,
     HotspotListResponse,
+    GridFeatureResponse,
 )
 from src.api.services.network_service import (
     get_network_summary,
     get_grid_activity,
     get_alerts,
     get_hotspots,
+    get_grid_features,
 )
 from src.db.connection import get_connection
 
@@ -205,6 +207,44 @@ def network_alerts(
                 "message": str(exc),
             },
         ) from exc
+
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+
+@router.get(
+    "/network/grid/{grid_id}/features",
+    response_model=GridFeatureResponse,
+)
+def grid_features(
+    grid_id: str,
+    start_time: datetime = Query(...),
+    end_time: datetime = Query(...),
+):
+    connection = None
+
+    try:
+        connection = get_connection()
+
+        result = get_grid_features(
+            connection=connection,
+            grid_id=grid_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        return result
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Analytics data source unavailable",
+                "message": str(exc),
+            },
+        )
 
     finally:
         if connection is not None:

@@ -137,3 +137,24 @@ ORDER BY
     g.grid_id ASC
 LIMIT %s
 """
+
+GET_GRID_FEATURES = """
+SELECT
+    grid_id,
+    avg_activity,
+    activity_growth,
+    active_hours,
+    peak_ratio,
+    variability,
+    internet_share,
+    feature_timestamp
+FROM ml2_grid_features
+WHERE grid_id = %s
+  AND feature_timestamp BETWEEN %s AND %s
+ORDER BY feature_timestamp
+"""
+
+GET_LATEST_FEATURE_TIMESTAMP = """
+SELECT MAX(feature_timestamp) AS latest_feature_timestamp
+FROM ml2_grid_features
+"""

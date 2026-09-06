@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from typing import Any
+
 from mysql.connector import MySQLConnection
 
 from src.db.queries.network_queries import (
@@ -14,6 +16,8 @@ from src.db.queries.network_queries import (
     GET_GRID_ACTIVITY,
     GET_HOTSPOTS,
     GET_ALERTS,
+    GET_GRID_FEATURES,
+    GET_LATEST_FEATURE_TIMESTAMP,
 )
 
 
@@ -310,6 +314,118 @@ def get_alerts(
             "as_of": effective_as_of,
             "count": len(alerts),
             "items": alerts,
+        }
+
+    finally:
+        cursor.close()
+
+
+def _format_timestamp(value: Any) -> str:
+    """
+    Convert database datetime/date values into the stable API string format.
+    """
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    return str(value)
+
+
+def get_grid_features(
+    connection,
+    grid_id: str,
+    start_time: datetime,
+    end_time: datetime,
+):
+    """
+    Read ML2 features for a grid and time window.
+
+    This function deliberately does NOT calculate any features.
+    """
+
+    cursor = connection.cursor(dictionary=True)
+
+    try:
+        # ---------------------------------------------------------
+        # Read stored ML2 feature values
+        # ---------------------------------------------------------
+        cursor.execute(
+            GET_GRID_FEATURES,
+            (
+                grid_id,
+                start_time,
+                end_time,
+            ),
+        )
+
+        rows = cursor.fetchall()
+
+        # ---------------------------------------------------------
+        # Find latest feature timestamp for freshness calculation
+        # ---------------------------------------------------------
+        cursor.execute(GET_LATEST_FEATURE_TIMESTAMP)
+
+        result = cursor.fetchone()
+
+        if isinstance(result, dict):
+            latest_timestamp = next(iter(result.values()))
+        else:
+            latest_timestamp = result[0] if result else None
+
+        features = []
+
+        for row in rows:
+            feature_timestamp = row["feature_timestamp"]
+
+            # -----------------------------------------------------
+            # Freshness
+            # -----------------------------------------------------
+            if (
+                latest_timestamp is not None
+                and feature_timestamp == latest_timestamp
+            ):
+                freshness = "FRESH"
+            else:
+                freshness = "STALE"
+
+            # -----------------------------------------------------
+            # Data quality
+            # -----------------------------------------------------
+            feature_columns = [
+                "avg_activity",
+                "activity_growth",
+                "active_hours",
+                "peak_ratio",
+                "variability",
+                "internet_share",
+            ]
+
+            quality = "GOOD"
+
+            if any(row[column] is None for column in feature_columns):
+                quality = "DEGRADED"
+
+            # -----------------------------------------------------
+            # API response
+            # -----------------------------------------------------
+            features.append(
+                {
+                    "avg_activity": float(row["avg_activity"]),
+                    "activity_growth": float(row["activity_growth"]),
+                    "active_hours": int(row["active_hours"]),
+                    "peak_ratio": float(row["peak_ratio"]),
+                    "variability": float(row["variability"]),
+                    "internet_share": float(row["internet_share"]),
+                    "feature_timestamp": _format_timestamp(
+                        feature_timestamp
+                    ),
+                    "data_quality": quality,
+                    "feature_freshness": freshness,
+                }
+            )
+
+        return {
+            "grid_id": grid_id,
+            "features": features,
         }
 
     finally:

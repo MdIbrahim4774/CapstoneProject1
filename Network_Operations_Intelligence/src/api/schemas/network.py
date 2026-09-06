@@ -137,3 +137,33 @@ class AlertListResponse(BaseModel):
     as_of: datetime
     count: int
     items: List[AlertItem]
+
+
+class GridFeature(BaseModel):
+    """
+    Stable API contract for the ML2 feature vector.
+
+    Do not add/remove ML features here without coordinating
+    with ML5, RE5 and Claude consumers.
+    """
+
+    avg_activity: float
+    activity_growth: float
+    active_hours: int
+    peak_ratio: float
+    variability: float
+    internet_share: float
+    feature_timestamp: str
+
+    data_quality: str = Field(
+        description="Quality status of the stored feature row"
+    )
+
+    freshness: str = Field(
+        description="Freshness status of the stored feature row"
+    )
+
+
+class GridFeatureResponse(BaseModel):
+    grid_id: str
+    features: list[GridFeature]
