@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes.network import router as network_router
+from src.api.routes.operational import router as operational_router
 
 
 app = FastAPI(
@@ -28,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(network_router)
+app.include_router(operational_router)
 
 
 @app.get(
