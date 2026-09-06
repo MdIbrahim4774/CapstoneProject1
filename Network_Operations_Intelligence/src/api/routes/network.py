@@ -7,15 +7,23 @@ API2 - Grid Activity
 
 from datetime import datetime
 
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
 from fastapi import APIRouter, HTTPException, Query
 
 from src.api.schemas.network import (
     NetworkSummaryResponse,
     GridActivityResponse,
+    AlertListResponse,
+    HotspotListResponse,
 )
 from src.api.services.network_service import (
     get_network_summary,
     get_grid_activity,
+    get_alerts,
+    get_hotspots,
 )
 from src.db.connection import get_connection
 
@@ -82,6 +90,122 @@ def grid_activity(
                 "message": str(exc),
             },
         ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+# ---------------------------------------------------------------------------
+# HOTSPOTS
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/hotspots",
+    response_model=HotspotListResponse,
+    summary="Get network activity hotspots",
+)
+def network_hotspots(
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=500,
+        description="Maximum number of hotspot records to return.",
+    ),
+    as_of: datetime | None = Query(
+        default=None,
+        description=(
+            "Reporting timestamp. If omitted, the latest available "
+            "timestamp is used."
+        ),
+    ),
+) -> HotspotListResponse:
+    """
+    Return the highest-activity grids.
+    """
+
+    connection = None
+
+    try:
+        connection = get_connection()
+
+        result = get_hotspots(
+            connection=connection,
+            limit=limit,
+            requested_as_of=as_of,
+        )
+
+        return HotspotListResponse(**result)
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Analytics data source unavailable",
+                "message": str(exc),
+            },
+        ) from exc
+
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+# ---------------------------------------------------------------------------
+# ALERTS
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/alerts",
+    response_model=AlertListResponse,
+    summary="Get network alerts",
+)
+def network_alerts(
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=500,
+        description="Maximum number of alerts to return.",
+    ),
+    severity: str | None = Query(
+        default=None,
+        description=(
+            "Filter by severity. Examples: LOW, MEDIUM, HIGH, CRITICAL."
+        ),
+    ),
+    as_of: datetime | None = Query(
+        default=None,
+        description=(
+            "Reporting timestamp. If omitted, the latest available "
+            "timestamp is used."
+        ),
+    ),
+) -> AlertListResponse:
+    """
+    Return rule-based NP3 network alerts.
+    """
+
+    connection = None
+
+    try:
+        connection = get_connection()
+
+        result = get_alerts(
+            connection=connection,
+            limit=limit,
+            severity=severity,
+            requested_as_of=as_of,
+        )
+
+        return AlertListResponse(**result)
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Analytics data source unavailable",
+                "message": str(exc),
+            },
+        ) from exc
+
     finally:
         if connection is not None:
             connection.close()

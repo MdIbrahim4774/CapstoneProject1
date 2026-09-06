@@ -4,6 +4,8 @@ Pydantic schemas for network endpoints.
 
 from datetime import date, datetime
 
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -41,3 +43,97 @@ class GridActivityResponse(BaseModel):
     grid_id: int
     activity: list[GridActivityPoint]
     as_of: datetime
+
+# ---------------------------------------------------------------------------
+# Activity
+# ---------------------------------------------------------------------------
+
+class ActivityMeasures(BaseModel):
+    """
+    Activity measures associated with a grid/hour.
+    """
+
+    total_activity: float = 0.0
+    total_sms: float = 0.0
+    total_calls: float = 0.0
+    internet: float = 0.0
+
+from datetime import datetime
+from typing import List, Optional
+
+from pydantic import BaseModel
+
+
+class RiskInfo(BaseModel):
+    """
+    Future ML risk information.
+    """
+
+    score: Optional[float] = None
+    label: Optional[str] = None
+    model_version: Optional[str] = None
+
+
+class HotspotItem(BaseModel):
+    """
+    Single network hotspot.
+    """
+
+    grid_id: int
+    timestamp: datetime
+
+    call_activity: float
+    sms_activity: float
+    internet_activity: float
+    total_activity: float
+
+    status: str
+    reason: str
+
+    source: str = "analytics"
+
+    # Reserved for future ML scoring.
+    risk: Optional[RiskInfo] = None
+
+
+class HotspotListResponse(BaseModel):
+    """
+    Hotspot API response.
+    """
+
+    as_of: datetime
+    count: int
+    items: List[HotspotItem]
+
+
+class AlertItem(BaseModel):
+    """
+    Single network alert.
+    """
+
+    grid_id: int
+    timestamp: datetime
+
+    call_activity: float
+    sms_activity: float
+    internet_activity: float
+    total_activity: float
+
+    status: str
+    severity: str
+    reason: str
+
+    source: str = "rule"
+
+    # Reserved for future ML scoring.
+    risk: Optional[RiskInfo] = None
+
+
+class AlertListResponse(BaseModel):
+    """
+    Alert API response.
+    """
+
+    as_of: datetime
+    count: int
+    items: List[AlertItem]
