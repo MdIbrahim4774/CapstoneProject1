@@ -11,3 +11,5 @@ Network_Operations_Intelligence/airflow/dags/__pycache__/
 Network_Operations_Intelligence/airflow/logs/*
 Network_Operations_Intelligence/airflow/airflow*
 Network_Operations_Intelligence/airflow/simple_auth_*
+Network_Operations_Intelligence/src/api/.env
+Network_Operations_Intelligence/src/*/*/__pycache__/*
