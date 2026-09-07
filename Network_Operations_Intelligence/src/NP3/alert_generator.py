@@ -2,14 +2,13 @@ import logging
 from pathlib import Path
 
 import pandas as pd
-
-# from usage_processor import UsageProcessor
+import mysql.connector
+from mysql.connector import Error
 
 
 # ---------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------
 # Rule thresholds
 # ---------------------------------------------------------
-
 HIGH_ACTIVITY_MULTIPLIER = 2.0
 SPIKE_MULTIPLIER = 1.5
 DROP_MULTIPLIER = 0.5
@@ -30,7 +28,6 @@ DROP_MULTIPLIER = 0.5
 # ---------------------------------------------------------
 # Input / Output
 # ---------------------------------------------------------
-
 INPUT_FILE = Path(
     "output/grid_hour_summary.csv"
 )
@@ -41,9 +38,89 @@ OUTPUT_FILE = Path(
 
 
 # ---------------------------------------------------------
+# MySQL configuration
+# ---------------------------------------------------------
+MYSQL_CONFIG = {
+    "host": "localhost",
+    "port": 3306,
+    "database": "network_operations",
+    "user": "root",
+    "password": "root",
+}
+
+
+# ---------------------------------------------------------
+# MySQL table
+# ---------------------------------------------------------
+CREATE_ALERT_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS network_alert (
+    alert_id BIGINT NOT NULL AUTO_INCREMENT,
+    grid_id VARCHAR(50) NOT NULL,
+    alert_timestamp DATETIME NOT NULL,
+    alert_type VARCHAR(50) NOT NULL,
+    current_activity DOUBLE NOT NULL,
+    baseline_activity DOUBLE NULL,
+    reason VARCHAR(500) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (alert_id),
+
+    UNIQUE KEY uq_network_alert (
+        grid_id,
+        alert_timestamp,
+        alert_type
+    ),
+
+    INDEX idx_network_alert_grid (
+        grid_id
+    ),
+
+    INDEX idx_network_alert_timestamp (
+        alert_timestamp
+    ),
+
+    INDEX idx_network_alert_type (
+        alert_type
+    ),
+
+    INDEX idx_network_alert_grid_timestamp (
+        grid_id,
+        alert_timestamp
+    )
+)
+"""
+
+
+# ---------------------------------------------------------
+# Insert / Upsert SQL
+# ---------------------------------------------------------
+INSERT_ALERT_SQL = """
+INSERT INTO network_alert (
+    grid_id,
+    alert_timestamp,
+    alert_type,
+    current_activity,
+    baseline_activity,
+    reason
+)
+VALUES (
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s
+)
+ON DUPLICATE KEY UPDATE
+    current_activity = VALUES(current_activity),
+    baseline_activity = VALUES(baseline_activity),
+    reason = VALUES(reason)
+"""
+
+
+# ---------------------------------------------------------
 # Load NP2 output
 # ---------------------------------------------------------
-
 def load_np2_output(filepath):
     """Load hourly analytics produced by NP2."""
 
@@ -78,25 +155,12 @@ def load_np2_output(filepath):
         ["grid_id", "hour_timestamp"]
     ).reset_index(drop=True)
 
-    # processor = UsageProcessor(
-    #     "data/sms-call-internet-mi-2013-11-01.csv"
-    # )
-
-    # processor.load_data()
-    # processor.clean_data()
-    # processor.derive_time_features()
-    # processor.aggregate_to_grid_time()
-    # processor.derive_activity_features()
-
-    # df = processor.hourly_summary
-
     return df
 
 
 # ---------------------------------------------------------
 # Activity floor
 # ---------------------------------------------------------
-
 def calculate_activity_floor(df):
     """
     Use the 25th percentile of grid-level daily
@@ -123,7 +187,6 @@ def calculate_activity_floor(df):
 # ---------------------------------------------------------
 # Within-day baseline
 # ---------------------------------------------------------
-
 def calculate_baseline(group):
     """
     Calculate the leave-one-hour-out median.
@@ -135,7 +198,7 @@ def calculate_baseline(group):
 
     activities = (
         group["total_activity"]
-        .tolist()
+        .to_numpy()
     )
 
     baselines = []
@@ -163,19 +226,80 @@ def calculate_baseline(group):
 
 
 def add_baselines(df):
-    """Add within-day baseline for each grid/hour."""
+    """
+    Add leave-one-hour-out baseline
+    for each grid and calendar day.
+
+    The current hour is excluded from
+    its own baseline.
+    """
 
     logger.info(
         "Calculating within-day baselines"
     )
 
-    result = (
-        df.groupby(
-            "grid_id",
-            group_keys=False
+    df = df.copy()
+
+    # Ensure timestamp is datetime
+    df["hour_timestamp"] = pd.to_datetime(
+        df["hour_timestamp"]
+    )
+
+    # Temporary date used only for grouping
+    df["_baseline_date"] = (
+        df["hour_timestamp"].dt.date
+    )
+
+    results = []
+
+    for (grid_id, baseline_date), group in df.groupby(
+        ["grid_id", "_baseline_date"],
+        sort=False
+    ):
+
+        logger.debug(
+            "Calculating baseline for grid=%s date=%s",
+            grid_id,
+            baseline_date
         )
-        .apply(calculate_baseline)
-        .reset_index(drop=True)
+
+        group = (
+            group
+            .sort_values("hour_timestamp")
+            .reset_index(drop=True)
+        )
+
+        group = calculate_baseline(group)
+
+        results.append(group)
+
+    if results:
+
+        result = pd.concat(
+            results,
+            ignore_index=True
+        )
+
+    else:
+
+        result = df.copy()
+
+        result["baseline_activity"] = None
+
+    # Remove temporary column safely
+    result = result.drop(
+        columns=["_baseline_date"],
+        errors="ignore"
+    )
+
+    # Restore consistent ordering
+    result = result.sort_values(
+        ["grid_id", "hour_timestamp"]
+    ).reset_index(drop=True)
+
+    logger.info(
+        "Columns after baseline calculation: %s",
+        result.columns.tolist()
     )
 
     return result
@@ -184,7 +308,6 @@ def add_baselines(df):
 # ---------------------------------------------------------
 # Generate alerts
 # ---------------------------------------------------------
-
 def generate_alerts(df, activity_floor):
     """
     Apply the three NP3 rules.
@@ -200,7 +323,7 @@ def generate_alerts(df, activity_floor):
     """
 
     logger.info(
-        "Generating network alerts"
+        "Generating network alerts: %s", df.columns.tolist()
     )
 
     alerts = []
@@ -216,7 +339,6 @@ def generate_alerts(df, activity_floor):
         # ---------------------------------------------
         # Activity floor
         # ---------------------------------------------
-
         daily_total = (
             group["total_activity"].sum()
         )
@@ -227,7 +349,6 @@ def generate_alerts(df, activity_floor):
         # ---------------------------------------------
         # Evaluate every hour
         # ---------------------------------------------
-
         for index, row in group.iterrows():
 
             current_activity = (
@@ -241,21 +362,24 @@ def generate_alerts(df, activity_floor):
             if pd.isna(baseline_activity):
                 continue
 
+            # -----------------------------------------
             # Previous hour
+            # -----------------------------------------
             previous_activity = None
 
             if index > 0:
-                previous_activity = group.loc[
-                    index - 1,
-                    "total_activity"
-                ]
+                previous_activity = (
+                    group.loc[
+                        index - 1,
+                        "total_activity"
+                    ]
+                )
 
             # -----------------------------------------
             # HIGH_ACTIVITY
             #
             # Current vs baseline
             # -----------------------------------------
-
             if (
                 baseline_activity > 0
                 and current_activity
@@ -280,7 +404,6 @@ def generate_alerts(df, activity_floor):
             #
             # Current vs previous hour ONLY
             # -----------------------------------------
-
             if (
                 previous_activity is not None
                 and previous_activity > 0
@@ -307,7 +430,6 @@ def generate_alerts(df, activity_floor):
             #
             # Current vs baseline
             # -----------------------------------------
-
             if (
                 baseline_activity > 0
                 and current_activity
@@ -331,9 +453,162 @@ def generate_alerts(df, activity_floor):
 
 
 # ---------------------------------------------------------
+# Create MySQL connection
+# ---------------------------------------------------------
+def get_mysql_connection():
+    """Create and return a MySQL database connection."""
+
+    logger.info(
+        "Connecting to MySQL database: %s",
+        MYSQL_CONFIG["database"]
+    )
+
+    try:
+        connection = mysql.connector.connect(
+            host=MYSQL_CONFIG["host"],
+            port=MYSQL_CONFIG["port"],
+            database=MYSQL_CONFIG["database"],
+            user=MYSQL_CONFIG["user"],
+            password=MYSQL_CONFIG["password"],
+        )
+
+        if connection.is_connected():
+            logger.info(
+                "Successfully connected to MySQL"
+            )
+
+        return connection
+
+    except Error as exc:
+        logger.error(
+            "MySQL connection failed: %s",
+            exc
+        )
+        raise
+
+
+# ---------------------------------------------------------
+# Create network_alert table
+# ---------------------------------------------------------
+def create_alert_table(connection):
+    """Create network_alert table if it does not exist."""
+
+    logger.info(
+        "Checking network_alert table"
+    )
+
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute(
+            CREATE_ALERT_TABLE_SQL
+        )
+
+        connection.commit()
+
+        logger.info(
+            "network_alert table is ready"
+        )
+
+    finally:
+        cursor.close()
+
+
+# ---------------------------------------------------------
+# Load alerts into MySQL
+# ---------------------------------------------------------
+def load_alerts_to_mysql(alerts):
+    """
+    Insert generated alerts into MySQL.
+
+    Duplicate grid_id + timestamp + alert_type
+    combinations are updated instead of inserted again.
+    """
+
+    if alerts.empty:
+        logger.info(
+            "No alerts to load into MySQL"
+        )
+        return
+
+    connection = None
+    cursor = None
+
+    try:
+
+        connection = get_mysql_connection()
+
+        create_alert_table(connection)
+
+        cursor = connection.cursor()
+
+        records = []
+
+        for _, row in alerts.iterrows():
+
+            alert_timestamp = row["timestamp"]
+
+            # Convert pandas Timestamp to Python datetime
+            if pd.notna(alert_timestamp):
+                alert_timestamp = (
+                    alert_timestamp.to_pydatetime()
+                )
+
+            baseline_activity = (
+                None
+                if pd.isna(row["baseline_activity"])
+                else float(row["baseline_activity"])
+            )
+
+            records.append((
+                str(row["grid_id"]),
+                alert_timestamp,
+                str(row["alert_type"]),
+                float(row["current_activity"]),
+                baseline_activity,
+                str(row["reason"]),
+            ))
+
+        cursor.executemany(
+            INSERT_ALERT_SQL,
+            records
+        )
+
+        connection.commit()
+
+        logger.info(
+            "Loaded %d alerts into network_alert",
+            len(records)
+        )
+
+    except Error as exc:
+
+        if connection is not None:
+            connection.rollback()
+
+        logger.error(
+            "Failed to load alerts into MySQL: %s",
+            exc
+        )
+
+        raise
+
+    finally:
+
+        if cursor is not None:
+            cursor.close()
+
+        if connection is not None:
+            connection.close()
+
+            logger.info(
+                "MySQL connection closed"
+            )
+
+
+# ---------------------------------------------------------
 # Operational summary
 # ---------------------------------------------------------
-
 def print_operational_summary(
     alerts,
     total_grid_hours
@@ -345,10 +620,14 @@ def print_operational_summary(
     )
 
     if alerts.empty:
+
         print("No alerts generated.")
+
         return
 
+    # ---------------------------------------------
     # Alerts by type
+    # ---------------------------------------------
     print("Alerts by type:")
 
     print(
@@ -357,7 +636,9 @@ def print_operational_summary(
         .to_string()
     )
 
+    # ---------------------------------------------
     # Top 10 grids
+    # ---------------------------------------------
     print("\nTop 10 grids by alert count:")
 
     print(
@@ -367,7 +648,9 @@ def print_operational_summary(
         .to_string()
     )
 
+    # ---------------------------------------------
     # Unique grid/hour combinations
+    # ---------------------------------------------
     alerting_grid_hours = (
         alerts[
             ["grid_id", "timestamp"]
@@ -376,16 +659,20 @@ def print_operational_summary(
         .shape[0]
     )
 
+    # ---------------------------------------------
     # Proportion
-    proportion = (
-        alerting_grid_hours
-        / total_grid_hours
-    )
+    # ---------------------------------------------
+    if total_grid_hours > 0:
 
-    print(
-        f"\nProportion of all grid/hours "
-        f"that alerted: {proportion:.2%}"
-    )
+        proportion = (
+            alerting_grid_hours
+            / total_grid_hours
+        )
+
+        print(
+            f"\nProportion of all grid/hours "
+            f"that alerted: {proportion:.2%}"
+        )
 
     print(
         "\n===========================================\n"
@@ -395,61 +682,114 @@ def print_operational_summary(
 # ---------------------------------------------------------
 # Main
 # ---------------------------------------------------------
-
 def main():
 
-    # 1. Load NP2 hourly output
-    df = load_np2_output(
-        INPUT_FILE
-    )
+    try:
 
-    # 2. Calculate data-driven activity floor
-    activity_floor = (
-        calculate_activity_floor(df)
-    )
+        # -----------------------------------------
+        # 1. Load NP2 hourly output
+        # -----------------------------------------
+        df = load_np2_output(
+            INPUT_FILE
+        )
 
-    # 3. Calculate leave-one-hour-out baseline
-    df = add_baselines(df)
+        logger.info(
+            "Loaded %d grid/hour records",
+            len(df)
+        )
 
-    # 4. Generate alerts
-    alerts = generate_alerts(
-        df,
-        activity_floor
-    )
+        # -----------------------------------------
+        # 2. Calculate data-driven activity floor
+        # -----------------------------------------
+        activity_floor = (
+            calculate_activity_floor(df)
+        )
 
-    # 5. Create output directory
-    OUTPUT_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+        # -----------------------------------------
+        # 3. Calculate leave-one-hour-out baseline
+        # -----------------------------------------
+        df = add_baselines(df)
 
-    # 6. Save alerts
-    alerts.to_csv(
-        OUTPUT_FILE,
-        index=False
-    )
+        # -----------------------------------------
+        # 4. Generate alerts
+        # -----------------------------------------
+        alerts = generate_alerts(
+            df,
+            activity_floor
+        )
 
-    logger.info(
-        "Saved %d alerts to %s",
-        len(alerts),
-        OUTPUT_FILE
-    )
+        logger.info(
+            "Generated %d alerts",
+            len(alerts)
+        )
 
-    # 7. Total grid/hour intervals
-    total_grid_hours = (
-        df[
-            ["grid_id", "hour_timestamp"]
-        ]
-        .drop_duplicates()
-        .shape[0]
-    )
+        # -----------------------------------------
+        # 5. Create output directory
+        # -----------------------------------------
+        OUTPUT_FILE.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
-    # 8. Operational summary
-    print_operational_summary(
-        alerts,
-        total_grid_hours
-    )
+        # -----------------------------------------
+        # 6. Save CSV
+        # -----------------------------------------
+        alerts.to_csv(
+            OUTPUT_FILE,
+            index=False
+        )
+
+        logger.info(
+            "Saved %d alerts to %s",
+            len(alerts),
+            OUTPUT_FILE
+        )
+
+        # -----------------------------------------
+        # 7. Load alerts into MySQL
+        # -----------------------------------------
+        load_alerts_to_mysql(
+            alerts
+        )
+
+        # -----------------------------------------
+        # 8. Total grid/hour intervals
+        # -----------------------------------------
+        total_grid_hours = (
+            df[
+                [
+                    "grid_id",
+                    "hour_timestamp"
+                ]
+            ]
+            .drop_duplicates()
+            .shape[0]
+        )
+
+        # -----------------------------------------
+        # 9. Operational summary
+        # -----------------------------------------
+        print_operational_summary(
+            alerts,
+            total_grid_hours
+        )
+
+        logger.info(
+            "NP3 completed successfully"
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "NP3 failed: %s",
+            exc
+        )
+
+        raise
 
 
+# ---------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------
 if __name__ == "__main__":
     main()

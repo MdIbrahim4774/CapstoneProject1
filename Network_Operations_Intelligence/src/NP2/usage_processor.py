@@ -81,13 +81,15 @@ class UsageProcessor:
 
         elif isinstance(self.source, (str, Path)):
             path = Path(self.source)
+            
 
             if not path.exists():
                 raise FileNotFoundError(
                     f"Input file does not exist: {path}"
                 )
+            path = path.glob("*.csv") if path.is_dir() else [path]
 
-            self.df = pd.read_csv(path)
+            self.df = pd.concat([pd.read_csv(p) for p in path], ignore_index=True)
 
         else:
             raise TypeError(
@@ -460,4 +462,4 @@ class UsageProcessor:
 
         return self
 
-UsageProcessor("data/sms-call-internet-mi-2013-11-01.csv").run()
+UsageProcessor("data/landing/").run()
