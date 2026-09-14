@@ -49,6 +49,7 @@ from airflow import DAG
 from airflow.exceptions import AirflowException
 from airflow.operators.python import PythonOperator
 from airflow.utils.trigger_rule import TriggerRule
+from airflow.operators.bash import BashOperator
 
 
 # ============================================================
@@ -1189,6 +1190,11 @@ with DAG(
         python_callable=load_warehouse,
     )
 
+    score_ml = BashOperator(
+    task_id="score_ml",
+    bash_command=f"python {PROJECT_ROOT}/src/ml/ml6_batch_score.py",
+    )
+
     quality_check_task = PythonOperator(
         task_id="quality_check",
         python_callable=quality_check,
@@ -1206,6 +1212,7 @@ with DAG(
         >> validate_task
         >> spark_process_task
         >> load_warehouse_task
+        >> score_ml
         >> quality_check_task
         >> notify_task
     )

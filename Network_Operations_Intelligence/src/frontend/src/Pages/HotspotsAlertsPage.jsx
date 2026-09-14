@@ -349,6 +349,7 @@ function HotspotsAlertsPage() {
               <OperationalTable
                 rows={alerts}
                 onGridSelect={openGrid}
+                showRiskScore
               />
             </div>
 
@@ -422,6 +423,7 @@ function HotspotsAlertsPage() {
 function OperationalTable({
   rows,
   onGridSelect,
+  showRiskScore = false,
 }) {
   if (!rows || rows.length === 0) {
     return (
@@ -434,11 +436,10 @@ function OperationalTable({
   return (
     <div className="table-container">
       <table>
-
         <thead>
           <tr>
             <th>Grid</th>
-            <th>Activity</th>
+            <th>{showRiskScore ? "Risk Score" : "Activity"}</th>
             <th>Status</th>
             <th>Timestamp</th>
           </tr>
@@ -446,32 +447,29 @@ function OperationalTable({
 
         <tbody>
           {rows.map((row, index) => {
-
-            const gridId =
-              getGridId(row);
+            const gridId = getGridId(row);
 
             return (
               <tr
                 key={`${gridId}-${index}`}
               >
-
                 <td>
                   <button
                     className="link-button"
-                    onClick={() =>
-                      onGridSelect(gridId)
-                    }
+                    onClick={() => onGridSelect(gridId)}
                   >
                     {gridId || "N/A"}
                   </button>
                 </td>
 
                 <td>
-                  {formatNumber(
-                    row.total_activity ??
-                    row.activity ??
-                    0
-                  )}
+                  {showRiskScore
+                    ? formatNumber(row?.risk?.score)
+                    : formatNumber(
+                        row.total_activity ??
+                        row.activity ??
+                        0
+                      )}
                 </td>
 
                 <td>
@@ -487,17 +485,14 @@ function OperationalTable({
                     row.as_of ??
                     "N/A"}
                 </td>
-
               </tr>
             );
           })}
         </tbody>
-
       </table>
     </div>
   );
 }
-
 // ========================================
 // NORMALIZE API RESPONSE
 // ========================================

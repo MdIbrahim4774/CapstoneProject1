@@ -280,9 +280,14 @@ def get_hotspots(
                         "High network activity detected."
                     ),
 
-                    "source": "analytics",
+                    "source": str(
+                        row["model_version"]
+                    ),
 
-                    "risk": None,
+                    "risk": {"score": float(row["risk_score"]),
+                            "label": str(row["risk_level"]),
+                            "model_version": str(row["model_version"])
+                            },
                 }
             )
 
@@ -329,15 +334,19 @@ def get_alerts(
             alerts.append({
                 "grid_id": int(row["grid_id"]),
                 "timestamp": row["timestamp"],
-                "call_activity": float(row["call_activity"] or 0),
-                "sms_activity": float(row["sms_activity"] or 0),
-                "internet_activity": float(row["internet_activity"] or 0),
-                "total_activity": float(row["total_activity"] or 0),
+                "call_activity": 0,
+                "sms_activity": 0,
+                "internet_activity": 0,
+                "total_activity": 0,
                 "status": str(row["status"]),
-                "severity": str(row["severity"]),
+                "severity": str(row["risk_level"]),
                 "reason": str(row["reason"]),
-                "source": "rule",
-                "risk": None,
+                "source": str(row["model_version"]),
+                "risk": {
+                    "score": float(row["risk_score"]),
+                    "label": str(row["risk_level"]),
+                    "model_version": str(row["model_version"])
+                },
             })
 
         # Apply severity filtering only if the SQL query

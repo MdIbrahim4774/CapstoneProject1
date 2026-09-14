@@ -101,16 +101,25 @@ SELECT
     SUM(f.call_in + f.call_out) AS call_activity,
     SUM(f.sms_in + f.sms_out) AS sms_activity,
     SUM(f.internet) AS internet_activity,
-    SUM(f.total_activity) AS total_activity
+    SUM(f.total_activity) AS total_activity,
+    r.risk_score,
+    r.risk_level,
+    r.model_version
 FROM fact_network_activity AS f
 INNER JOIN dim_time AS t
     ON f.time_key = t.time_key
 INNER JOIN dim_grid AS g
     ON f.grid_key = g.grid_key
+LEFT JOIN network_risk_scores AS r
+    ON r.grid_id = g.grid_id
+    AND r.timestamp = t.timestamp
 WHERE t.timestamp = %s
 GROUP BY
     g.grid_id,
-    t.timestamp
+    t.timestamp,
+    r.risk_score,
+    r.risk_level,
+    r.model_version
 ORDER BY
     total_activity DESC,
     g.grid_id ASC
@@ -122,28 +131,17 @@ LIMIT %s
 # ============================================================================
 GET_ALERTS = """
 SELECT
-    g.grid_id,
-    t.timestamp,
-    SUM(f.call_in + f.call_out) AS call_activity,
-    SUM(f.sms_in + f.sms_out) AS sms_activity,
-    SUM(f.internet) AS internet_activity,
-    SUM(f.total_activity) AS total_activity,
+    grid_id,
+    timestamp,
     'ACTIVE' AS status,
-    'HIGH' AS severity,
-    'Rule-based activity alert detected.' AS reason
-FROM fact_network_activity AS f
-INNER JOIN dim_time AS t
-    ON f.time_key = t.time_key
-INNER JOIN dim_grid AS g
-    ON f.grid_key = g.grid_key
-WHERE t.timestamp = %s
-GROUP BY
-    g.grid_id,
-    t.timestamp
-HAVING SUM(f.total_activity) > 0
-ORDER BY
-    total_activity DESC,
-    g.grid_id ASC
+    risk_level AS severity,
+    'ML risk score detected.' AS reason,
+    risk_score,
+    risk_level,
+    model_version
+FROM network_risk_scores
+WHERE timestamp <= %s
+ORDER BY risk_score DESC
 LIMIT %s
 """
 
