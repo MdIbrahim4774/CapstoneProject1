@@ -1,0 +1,14 @@
+item,value
+Final Model,XGBoost
+Prediction Horizon,Next hour
+Target,Grid-specific P75 high activity
+Threshold,0.3
+Accuracy,0.7923440746546131
+Precision,0.6104506925780443
+Recall,0.7538655475593994
+F1,0.6746203439929744
+ROC-AUC,0.8736681611951864
+Average Precision,0.701802719961823
+ML3-NP3 Agreement,0.5106076623045237
+ML3 Alerts,77392
+NP3 Alerts in ML3 Test Period,39908

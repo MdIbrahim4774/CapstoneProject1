@@ -173,8 +173,8 @@ class RiskPredictionRequest(BaseModel):
     """
     Stable request contract for risk prediction.
 
-    ML5 can later consume these same fields without changing
-    the API contract used by the frontend.
+    ML5 derives hour_sin and hour_cos from feature_timestamp
+    because these features were generated during ML3 training.
     """
 
     avg_activity: float = Field(
@@ -191,7 +191,7 @@ class RiskPredictionRequest(BaseModel):
     active_hours: float = Field(
         ...,
         ge=0,
-        le=23,
+        le=24,
         description="Number of active hours in the observation window.",
     )
 
@@ -214,6 +214,10 @@ class RiskPredictionRequest(BaseModel):
         description="Share of total activity attributable to internet usage.",
     )
 
+    feature_timestamp: datetime = Field(
+        ...,
+        description="Timestamp associated with the ML2 feature row.",
+    )
 
 class RiskPredictionResponse(BaseModel):
     """

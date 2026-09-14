@@ -3,16 +3,21 @@ import { useState } from "react";
 import { predictRisk } from "../api/networkApi";
 
 import RiskBadge from "../components/RiskBadge";
+
 import Loading from "../components/Loading";
+
 import ErrorMessage from "../components/ErrorMessage";
 
 function PredictiveRiskPage() {
   const [form, setForm] = useState({
     grid_id: "",
-    total_activity: "",
-    total_calls: "",
-    total_sms: "",
-    internet: "",
+    avg_activity: "",
+    activity_growth: "",
+    active_hours: "",
+    peak_ratio: "",
+    variability: "",
+    internet_share: "",
+    feature_timestamp: "",
   });
 
   const [result, setResult] = useState(null);
@@ -38,18 +43,13 @@ function PredictiveRiskPage() {
 
       const payload = {
         grid_id: form.grid_id,
-        total_activity: Number(
-          form.total_activity
-        ),
-        total_calls: Number(
-          form.total_calls
-        ),
-        total_sms: Number(
-          form.total_sms
-        ),
-        internet: Number(
-          form.internet
-        ),
+        avg_activity: Number(form.avg_activity),
+        activity_growth: Number(form.activity_growth),
+        active_hours: Number(form.active_hours),
+        peak_ratio: Number(form.peak_ratio),
+        variability: Number(form.variability),
+        internet_share: Number(form.internet_share),
+        feature_timestamp: form.feature_timestamp,
       };
 
       const response = await predictRisk(payload);
@@ -84,8 +84,10 @@ function PredictiveRiskPage() {
       <div className="page-header">
         <div>
           <h1>Predictive Risk</h1>
+
           <p>
-            Request a model-based risk or anomaly score.
+            Submit ML2 features to generate an ML3
+            model-based network risk prediction.
           </p>
         </div>
       </div>
@@ -113,52 +115,102 @@ function PredictiveRiskPage() {
             </label>
 
             <label>
-              Total Activity
+              Average Activity
 
               <input
-                name="total_activity"
+                name="avg_activity"
                 type="number"
                 step="any"
-                value={form.total_activity}
+                value={form.avg_activity}
                 onChange={handleChange}
+                placeholder="e.g. 120.5"
                 required
               />
             </label>
 
             <label>
-              Total Calls
+              Activity Growth
 
               <input
-                name="total_calls"
+                name="activity_growth"
                 type="number"
                 step="any"
-                value={form.total_calls}
+                value={form.activity_growth}
                 onChange={handleChange}
+                placeholder="e.g. 0.05"
                 required
               />
             </label>
 
             <label>
-              Total SMS
+              Active Hours
 
               <input
-                name="total_sms"
+                name="active_hours"
                 type="number"
-                step="any"
-                value={form.total_sms}
+                min="0"
+                max="24"
+                step="1"
+                value={form.active_hours}
                 onChange={handleChange}
+                placeholder="e.g. 22"
                 required
               />
             </label>
 
             <label>
-              Internet
+              Peak Ratio
 
               <input
-                name="internet"
+                name="peak_ratio"
                 type="number"
+                min="0"
                 step="any"
-                value={form.internet}
+                value={form.peak_ratio}
+                onChange={handleChange}
+                placeholder="e.g. 2.8"
+                required
+              />
+            </label>
+
+            <label>
+              Variability
+
+              <input
+                name="variability"
+                type="number"
+                min="0"
+                step="any"
+                value={form.variability}
+                onChange={handleChange}
+                placeholder="e.g. 0.15"
+                required
+              />
+            </label>
+
+            <label>
+              Internet Share
+
+              <input
+                name="internet_share"
+                type="number"
+                min="0"
+                max="1"
+                step="any"
+                value={form.internet_share}
+                onChange={handleChange}
+                placeholder="e.g. 0.82"
+                required
+              />
+            </label>
+
+            <label>
+              Feature Timestamp
+
+              <input
+                name="feature_timestamp"
+                type="datetime-local"
+                value={form.feature_timestamp}
                 onChange={handleChange}
                 required
               />
@@ -186,7 +238,7 @@ function PredictiveRiskPage() {
 
           {!result && !loading && (
             <div className="empty-state">
-              Submit features to receive a prediction.
+              Submit ML2 features to receive a prediction.
             </div>
           )}
 
@@ -217,6 +269,22 @@ function PredictiveRiskPage() {
                   {modelVersion}
                 </strong>
               </div>
+
+              {result.feature_timestamp && (
+                <div className="model-version">
+                  <span>Feature Timestamp</span>
+
+                  <strong>
+                    {result.feature_timestamp}
+                  </strong>
+                </div>
+              )}
+
+              {result.explanation_note && (
+                <div className="prediction-disclaimer">
+                  {result.explanation_note}
+                </div>
+              )}
 
               <div className="prediction-disclaimer">
                 Model output is a statistical prediction and

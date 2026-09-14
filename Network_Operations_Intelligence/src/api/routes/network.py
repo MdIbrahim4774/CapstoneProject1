@@ -256,7 +256,7 @@ def grid_features(
             connection.close()
 
 @router.post(
-    "/network/predict-risk",
+    "/predict-risk",
     response_model=RiskPredictionResponse,
 )
 def predict_network_risk(
