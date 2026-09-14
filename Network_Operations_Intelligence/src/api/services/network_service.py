@@ -12,7 +12,10 @@ from mysql.connector import MySQLConnection
 
 from src.db.queries.network_queries import (
     GET_MAX_TIMESTAMP,
-    GET_NETWORK_SUMMARY,
+    GET_TOTAL_ACTIVITY,
+    GET_ACTIVE_GRIDS,
+    GET_PEAK_HOUR,
+    GET_TOP_GRID,
     GET_GRID_ACTIVITY,
     GET_HOTSPOTS,
     GET_ALERTS,
@@ -73,47 +76,84 @@ def get_network_summary(
     cursor = connection.cursor(dictionary=True)
 
     try:
+        # ---------------------------------------------------------
+        # 1. Total activity
+        # ---------------------------------------------------------
         cursor.execute(
-            GET_NETWORK_SUMMARY,
+            GET_TOTAL_ACTIVITY,
             (effective_as_of,),
         )
 
-        row = cursor.fetchone()
+        total_row = cursor.fetchone()
 
-        if row is None:
+        if total_row is None:
             raise RuntimeError(
-                "Unable to calculate network summary."
+                "Unable to calculate total activity."
             )
 
-        if row["peak_hour"] is None:
+        # ---------------------------------------------------------
+        # 2. Active grids
+        # ---------------------------------------------------------
+        cursor.execute(
+            GET_ACTIVE_GRIDS,
+            (effective_as_of,),
+        )
+
+        active_row = cursor.fetchone()
+
+        if active_row is None:
             raise RuntimeError(
-                "Analytics layer contains no activity data."
+                "Unable to calculate active grids."
             )
 
-        if row["top_grid"] is None:
+        # ---------------------------------------------------------
+        # 3. Peak hour
+        # ---------------------------------------------------------
+        cursor.execute(
+            GET_PEAK_HOUR,
+            (effective_as_of,),
+        )
+
+        peak_row = cursor.fetchone()
+
+        if peak_row is None:
             raise RuntimeError(
-                "Analytics layer contains no grid data."
+                "Unable to calculate peak hour."
+            )
+
+        # ---------------------------------------------------------
+        # 4. Top grid
+        # ---------------------------------------------------------
+        cursor.execute(
+            GET_TOP_GRID,
+            (effective_as_of,),
+        )
+
+        top_grid_row = cursor.fetchone()
+
+        if top_grid_row is None:
+            raise RuntimeError(
+                "Unable to calculate top grid."
             )
 
         return {
             "total_activity": float(
-                row["total_activity"] or 0
+                total_row["total_activity"] or 0
             ),
             "active_grids": int(
-                row["active_grids"] or 0
+                active_row["active_grids"] or 0
             ),
             "peak_hour": int(
-                row["peak_hour"]
+                peak_row["hour"]
             ),
             "top_grid": str(
-                row["top_grid"]
+                top_grid_row["grid_id"]
             ),
             "as_of": effective_as_of,
         }
 
     finally:
         cursor.close()
-
 
 # ============================================================================
 # API2 - Grid Activity

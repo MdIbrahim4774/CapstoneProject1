@@ -576,6 +576,7 @@ def train_model(
         max_depth=TREE_MAX_DEPTH,
         min_samples_leaf=TREE_MIN_SAMPLES_LEAF,
         random_state=TREE_RANDOM_STATE,
+        class_weight="balanced",
     )
 
     model.fit(

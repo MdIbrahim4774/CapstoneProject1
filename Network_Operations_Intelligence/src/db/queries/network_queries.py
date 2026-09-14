@@ -1,63 +1,72 @@
 """
 SQL queries for network analytics.
 """
-GET_MAX_TIMESTAMP = """
-SELECT MAX(timestamp) AS as_of
-FROM dim_time
+
+GET_TOTAL_ACTIVITY = """
+SELECT
+    COALESCE(SUM(f.total_activity), 0) AS total_activity
+FROM fact_network_activity AS f
+INNER JOIN dim_time AS t
+    ON f.time_key = t.time_key
+WHERE t.timestamp <= %s
 """
 
-GET_NETWORK_SUMMARY = """
-WITH grid_hour AS (
+
+GET_ACTIVE_GRIDS = """
+SELECT
+    COUNT(*) AS active_grids
+FROM (
+    SELECT
+        f.grid_key
+    FROM fact_network_activity AS f
+    INNER JOIN dim_time AS t
+        ON f.time_key = t.time_key
+    WHERE t.timestamp <= %s
+    GROUP BY f.grid_key
+    HAVING SUM(f.total_activity) > 0
+) AS active
+"""
+
+
+GET_PEAK_HOUR = """
+SELECT
+    t.hour,
+    SUM(f.total_activity) AS activity
+FROM fact_network_activity AS f
+INNER JOIN dim_time AS t
+    ON f.time_key = t.time_key
+WHERE t.timestamp <= %s
+GROUP BY t.hour
+ORDER BY activity DESC, t.hour ASC
+LIMIT 1
+"""
+
+
+GET_TOP_GRID = """
+SELECT
+    g.grid_id,
+    gt.activity
+FROM (
     SELECT
         f.grid_key,
-        g.grid_id,
-        t.hour,
         SUM(f.total_activity) AS activity
     FROM fact_network_activity AS f
     INNER JOIN dim_time AS t
         ON f.time_key = t.time_key
-    INNER JOIN dim_grid AS g
-        ON f.grid_key = g.grid_key
     WHERE t.timestamp <= %s
-    GROUP BY f.grid_key, g.grid_id, t.hour
-),
-grid_totals AS (
-    SELECT
-        grid_key,
-        grid_id,
-        SUM(activity) AS activity
-    FROM grid_hour
-    GROUP BY grid_key, grid_id
-),
-hour_totals AS (
-    SELECT
-        hour,
-        SUM(activity) AS activity
-    FROM grid_hour
-    GROUP BY hour
-)
-SELECT
-    (
-        SELECT COALESCE(SUM(activity), 0)
-        FROM grid_hour
-    ) AS total_activity,
-    (
-        SELECT COUNT(*)
-        FROM grid_totals
-        WHERE activity > 0
-    ) AS active_grids,
-    (
-        SELECT hour
-        FROM hour_totals
-        ORDER BY activity DESC, hour ASC
-        LIMIT 1
-    ) AS peak_hour,
-    (
-        SELECT grid_id
-        FROM grid_totals
-        ORDER BY activity DESC, grid_id ASC
-        LIMIT 1
-    ) AS top_grid
+    GROUP BY f.grid_key
+    ORDER BY activity DESC
+    LIMIT 1
+) AS gt
+INNER JOIN dim_grid AS g
+    ON g.grid_key = gt.grid_key
+ORDER BY g.grid_id ASC
+LIMIT 1
+"""
+
+GET_MAX_TIMESTAMP = """
+SELECT MAX(timestamp) AS as_of
+FROM dim_time
 """
 
 GET_GRID_ACTIVITY = """
